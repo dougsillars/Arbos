@@ -201,16 +201,40 @@ fi
 
 printf "\n"
 
-# ── 6. Collect .env ──────────────────────────────────────────────────────────
+# ── 6. Authenticate Cursor agent ─────────────────────────────────────────────
 
-printf "  ${BOLD}Configuration${NC}\n\n"
+printf "  ${BOLD}Authentication${NC}\n\n"
 
-printf "  ${DIM}Include CURSOR_API_KEY for headless agent auth${NC}\n"
-printf "  ${DIM}(get one at https://cursor.com/settings → API Keys)${NC}\n\n"
+if agent status >/dev/null 2>&1; then
+    ok "Cursor agent already authenticated"
+else
+    printf "  ${DIM}The agent CLI needs to be logged in to work.${NC}\n"
+    printf "  ${DIM}This will give you a URL to authenticate in your browser.${NC}\n\n"
+
+    if [ "$HAS_TTY" = true ]; then
+        agent login </dev/tty >/dev/tty 2>&1
+        if agent status >/dev/null 2>&1; then
+            ok "Cursor agent authenticated"
+        else
+            die "Cursor agent login failed — run 'agent login' manually and retry"
+        fi
+    else
+        die "No TTY available — run 'agent login' manually before installing"
+    fi
+fi
+
+printf "\n"
+
+# ── 7. Collect .env (optional extra vars) ────────────────────────────────────
+
+printf "  ${BOLD}Environment variables${NC}\n\n"
+
+printf "  ${DIM}Add any extra env vars your agent needs (API keys, etc.)${NC}\n"
+printf "  ${DIM}These will be available to the agent at runtime via .env${NC}\n\n"
 
 if [ "$HAS_TTY" = true ]; then
-    printf "  ${DIM}Paste your environment variables (KEY=VALUE, one per line)${NC}\n"
-    printf "  ${DIM}Press Enter on an empty line when done${NC}\n\n"
+    printf "  ${DIM}Paste KEY=VALUE lines, one per line.${NC}\n"
+    printf "  ${DIM}Press Enter on an empty line when done (or just Enter to skip).${NC}\n\n"
 
     ENV_CONTENT=""
     while true; do
@@ -227,17 +251,20 @@ if [ "$HAS_TTY" = true ]; then
         if [ -f "$INSTALL_DIR/.env" ]; then
             ok ".env unchanged (kept existing)"
         else
-            err "No .env content provided"
+            ok "No extra env vars (skipped)"
         fi
     fi
 else
-    [ -f "$INSTALL_DIR/.env" ] || die "No TTY and no .env — cannot configure"
-    ok ".env exists"
+    if [ -f "$INSTALL_DIR/.env" ]; then
+        ok ".env exists"
+    else
+        ok "No .env file (skipped)"
+    fi
 fi
 
 printf "\n"
 
-# ── 7. Start agent ───────────────────────────────────────────────────────────
+# ── 8. Start agent ───────────────────────────────────────────────────────────
 
 printf "  ${BOLD}Starting agent${NC}\n\n"
 
