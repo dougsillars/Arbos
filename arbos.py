@@ -316,8 +316,11 @@ def _claude_env() -> dict[str, str]:
 MAX_RETRIES = int(os.environ.get("CLAUDE_MAX_RETRIES", "5"))
 
 
-def _run_claude_once(cmd, env):
-    """Run a single claude subprocess, return (returncode, result_text, raw_lines, stderr)."""
+def _run_claude_once(cmd, env, on_text=None):
+    """Run a single claude subprocess, return (returncode, result_text, raw_lines, stderr).
+
+    on_text: optional callback(accumulated_text) fired as assistant text streams in.
+    """
     proc = subprocess.Popen(
         cmd, cwd=WORKING_DIR, env=env,
         stdin=subprocess.DEVNULL,
@@ -326,7 +329,8 @@ def _run_claude_once(cmd, env):
     )
 
     result_text = ""
-    assistant_texts: list[str] = []
+    complete_texts: list[str] = []
+    streaming_tokens: list[str] = []
     raw_lines: list[str] = []
     for line in iter(proc.stdout.readline, ""):
         raw_lines.append(line)
@@ -338,12 +342,28 @@ def _run_claude_once(cmd, env):
         if etype == "assistant":
             for block in evt.get("message", {}).get("content", []):
                 if block.get("type") == "text" and block.get("text"):
-                    assistant_texts.append(block["text"])
+                    if evt.get("model_call_id"):
+                        complete_texts.append(block["text"])
+                        streaming_tokens.clear()
+                    else:
+                        streaming_tokens.append(block["text"])
+                        if on_text:
+                            on_text("".join(streaming_tokens))
+        elif etype == "item.completed":
+            item = evt.get("item", {})
+            if item.get("type") == "agent_message" and item.get("text"):
+                complete_texts.append(item["text"])
+                streaming_tokens.clear()
+                if on_text:
+                    on_text(item["text"])
         elif etype == "result":
             result_text = evt.get("result", "")
 
-    if not result_text and assistant_texts:
-        result_text = assistant_texts[-1]
+    if not result_text:
+        if complete_texts:
+            result_text = complete_texts[-1]
+        elif streaming_tokens:
+            result_text = "".join(streaming_tokens)
 
     stderr_output = proc.stderr.read() if proc.stderr else ""
     returncode = proc.wait()
@@ -580,12 +600,22 @@ def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
         except Exception:
             pass
 
+    def _on_text(text: str):
+        nonlocal current_text
+        current_text = text
+        _edit(text)
+
     _claude_semaphore.acquire()
     try:
         env = _claude_env()
 
         for attempt in range(1, MAX_RETRIES + 1):
-            returncode, result_text, raw_lines, stderr_output = _run_claude_once(cmd, env)
+            current_text = ""
+            last_edit = 0.0
+
+            returncode, result_text, raw_lines, stderr_output = _run_claude_once(
+                cmd, env, on_text=_on_text,
+            )
 
             if result_text.strip():
                 current_text = result_text
