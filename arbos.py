@@ -659,7 +659,7 @@ def _build_operator_prompt(user_text: str) -> str:
         "- **Set env variable**: update `.env` (e.g. `AGENT_DELAY=120` to change step interval).\n"
         "- **View logs**: read files in `context/runs/<timestamp>/` (plan.md, rollout.md, logs.txt).\n"
         "- **Modify code & restart**: edit code files, then run `touch .restart`.\n"
-        "- **Send follow-up**: run `python tools/send_telegram.py \"message\"`.",
+        "- **Send follow-up**: run `python arbos.py send \"message\"`.",
         f"## Current goal\n{goal}",
         f"## Current state\n{state}",
     ]
@@ -820,7 +820,34 @@ def run_bot():
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+def _send_cli(args: list[str]):
+    """CLI entry point: python arbos.py send 'message' [--file path]"""
+    import argparse
+    parser = argparse.ArgumentParser(description="Send a Telegram message to the operator")
+    parser.add_argument("message", nargs="?", help="Message text to send")
+    parser.add_argument("--file", help="Send contents of a file instead")
+    parsed = parser.parse_args(args)
+
+    if not parsed.message and not parsed.file:
+        parser.error("Provide a message or --file")
+
+    if parsed.file:
+        text = Path(parsed.file).read_text()
+    else:
+        text = parsed.message
+
+    if _send_telegram_text(text):
+        print(f"Sent ({len(text)} chars)")
+    else:
+        print("Failed to send (check TAU_BOT_TOKEN and chat_id.txt)", file=sys.stderr)
+        sys.exit(1)
+
+
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "send":
+        _send_cli(sys.argv[2:])
+        return
+
     _log(f"arbos starting in {WORKING_DIR}")
     CONTEXT_DIR.mkdir(parents=True, exist_ok=True)
     _write_claude_settings()
