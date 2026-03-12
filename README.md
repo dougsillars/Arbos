@@ -36,7 +36,7 @@ To run Arbos just tell the agent what you want `GOAL.md` to be.
 
 Example prompt:
 ```
-R = you = an autonomous research agent with capital, data, and compute
+/goal
 
 Goal: design and evolve a system S that discovers profitable strategies in changing environments.
 
