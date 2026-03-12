@@ -230,6 +230,8 @@ PROXY_PORT = int(os.environ.get("PROXY_PORT", "8089"))
 CHUTES_API_KEY = os.environ.get("CHUTES_API_KEY", "")
 CHUTES_BASE_URL = os.environ.get("CHUTES_BASE_URL", "https://llm.chutes.ai/v1")
 PROXY_TIMEOUT = int(os.environ.get("PROXY_TIMEOUT", "600"))
+COST_PER_M_INPUT = float(os.environ.get("COST_PER_M_INPUT", "0.14"))
+COST_PER_M_OUTPUT = float(os.environ.get("COST_PER_M_OUTPUT", "0.60"))
 IS_ROOT = os.getuid() == 0
 MAX_RETRIES = int(os.environ.get("CLAUDE_MAX_RETRIES", "5"))
 CLAUDE_TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "600"))
@@ -289,7 +291,9 @@ def fmt_tokens(inp: int, out: int, elapsed: float = 0) -> str:
     tps = ""
     if elapsed > 0 and out > 0:
         tps = f" | {out / elapsed:.0f} t/s"
-    return f"{_k(inp)} in / {_k(out)} out{tps}"
+    cost = (inp * COST_PER_M_INPUT + out * COST_PER_M_OUTPUT) / 1_000_000
+    cost_str = f" | ${cost:.4f}" if cost >= 0.0001 else ""
+    return f"{_k(inp)} in / {_k(out)} out{tps}{cost_str}"
 
 
 # ── Prompt helpers ───────────────────────────────────────────────────────────
