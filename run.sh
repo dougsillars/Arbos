@@ -67,7 +67,7 @@ run() {
 
 # ── Detect context ───────────────────────────────────────────────────────────
 
-REPO_URL="https://github.com/unconst/Arbos.git"
+REPO_URL="https://github.com/dougsillars/Arbos.git"
 INSTALL_DIR=""
 
 if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
