@@ -1603,26 +1603,59 @@ def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
     return current_text
 
 
-def _is_owner(user_id: int) -> bool:
-    owner = os.environ.get("TELEGRAM_OWNER_ID", "").strip()
-    if not owner:
-        return False
-    return str(user_id) == owner
+def _get_owner_ids() -> set:
+    """Return set of authorized owner IDs."""
+    raw = os.environ.get("TELEGRAM_OWNER_ID", "").strip()
+    if not raw:
+        return set()
+    return {oid.strip() for oid in raw.split(",") if oid.strip()}
 
 
-def _enroll_owner(user_id: int):
-    """Auto-enroll the first /start user as the owner and persist."""
-    owner_id = str(user_id)
-    os.environ["TELEGRAM_OWNER_ID"] = owner_id
+def _get_allowed_usernames() -> set:
+    """Return set of authorized Telegram usernames (without @)."""
+    raw = os.environ.get("TELEGRAM_ALLOWED_USERNAMES", "").strip()
+    if not raw:
+        return set()
+    return {u.strip().lstrip("@").lower() for u in raw.split(",") if u.strip()}
+
+
+def _is_owner(user_id: int, username: str = None) -> bool:
+    if str(user_id) in _get_owner_ids():
+        return True
+    if username and username.lower() in _get_allowed_usernames():
+        return True
+    return False
+
+
+def _add_owner(user_id: int):
+    """Add a user ID to the owner list and persist."""
+    owner_ids = _get_owner_ids()
+    owner_ids.add(str(user_id))
+    new_val = ",".join(sorted(owner_ids))
+    os.environ["TELEGRAM_OWNER_ID"] = new_val
     env_path = WORKING_DIR / ".env"
     if env_path.exists():
         existing = env_path.read_text()
         if "TELEGRAM_OWNER_ID" not in existing:
             with open(env_path, "a") as f:
-                f.write(f"\nTELEGRAM_OWNER_ID='{owner_id}'\n")
+                f.write(f"\nTELEGRAM_OWNER_ID='{new_val}'\n")
+        else:
+            import re
+            updated = re.sub(
+                r"TELEGRAM_OWNER_ID='[^']*'",
+                f"TELEGRAM_OWNER_ID='{new_val}'",
+                existing,
+            )
+            with open(env_path, "w") as f:
+                f.write(updated)
     elif ENV_ENC_FILE.exists():
-        _save_to_encrypted_env("TELEGRAM_OWNER_ID", owner_id)
-    _log(f"enrolled owner: {owner_id}")
+        _save_to_encrypted_env("TELEGRAM_OWNER_ID", new_val)
+    _log(f"added owner: {user_id} (owners: {new_val})")
+
+
+def _enroll_owner(user_id: int):
+    """Auto-enroll user as an owner and persist."""
+    _add_owner(user_id)
 
 
 def run_bot():
@@ -1649,9 +1682,12 @@ def run_bot():
     @bot.message_handler(commands=["start"])
     def handle_start(message):
         uid = message.from_user.id if message.from_user else None
+        username = message.from_user.username if message.from_user else None
         if not os.environ.get("TELEGRAM_OWNER_ID", "").strip() and uid is not None:
             _enroll_owner(uid)
-        if not _is_owner(uid):
+        elif uid is not None and not _is_owner(uid, username) and username and username.lower() in _get_allowed_usernames():
+            _add_owner(uid)
+        if not _is_owner(uid, username):
             _reject(message)
             return
         _save_chat_id(message.chat.id)
@@ -1663,7 +1699,8 @@ def run_bot():
     @bot.message_handler(commands=["status"])
     def handle_status(message):
         uid = message.from_user.id if message.from_user else None
-        if not _is_owner(uid):
+        uname = message.from_user.username if message.from_user else None
+        if not _is_owner(uid, uname):
             _reject(message)
             return
         goal = GOAL_FILE.read_text().strip() if GOAL_FILE.exists() else "(none)"
@@ -1684,7 +1721,8 @@ def run_bot():
     @bot.message_handler(commands=["stop"])
     def handle_stop(message):
         uid = message.from_user.id if message.from_user else None
-        if not _is_owner(uid):
+        uname = message.from_user.username if message.from_user else None
+        if not _is_owner(uid, uname):
             _reject(message)
             return
         GOAL_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -1695,7 +1733,8 @@ def run_bot():
     @bot.message_handler(commands=["goal"])
     def handle_goal(message):
         uid = message.from_user.id if message.from_user else None
-        if not _is_owner(uid):
+        uname = message.from_user.username if message.from_user else None
+        if not _is_owner(uid, uname):
             _reject(message)
             return
         text = (message.text or "").split(None, 1)
@@ -1712,7 +1751,8 @@ def run_bot():
     @bot.message_handler(commands=["clear"])
     def handle_clear(message):
         uid = message.from_user.id if message.from_user else None
-        if not _is_owner(uid):
+        uname = message.from_user.username if message.from_user else None
+        if not _is_owner(uid, uname):
             _reject(message)
             return
         import shutil
@@ -1747,7 +1787,8 @@ def run_bot():
     @bot.message_handler(commands=["restart"])
     def handle_restart(message):
         uid = message.from_user.id if message.from_user else None
-        if not _is_owner(uid):
+        uname = message.from_user.username if message.from_user else None
+        if not _is_owner(uid, uname):
             _reject(message)
             return
         bot.send_message(message.chat.id, "Restarting — killing agent and exiting for pm2...")
@@ -1758,7 +1799,8 @@ def run_bot():
     @bot.message_handler(commands=["update"])
     def handle_update(message):
         uid = message.from_user.id if message.from_user else None
-        if not _is_owner(uid):
+        uname = message.from_user.username if message.from_user else None
+        if not _is_owner(uid, uname):
             _reject(message)
             return
         msg = bot.send_message(message.chat.id, "Pulling latest changes...")
@@ -1784,7 +1826,8 @@ def run_bot():
     @bot.message_handler(content_types=["voice", "audio"])
     def handle_voice(message):
         uid = message.from_user.id if message.from_user else None
-        if not _is_owner(uid):
+        uname = message.from_user.username if message.from_user else None
+        if not _is_owner(uid, uname):
             _reject(message)
             return
         _save_chat_id(message.chat.id)
@@ -1822,7 +1865,8 @@ def run_bot():
     @bot.message_handler(func=lambda m: True)
     def handle_message(message):
         uid = message.from_user.id if message.from_user else None
-        if not _is_owner(uid):
+        uname = message.from_user.username if message.from_user else None
+        if not _is_owner(uid, uname):
             _reject(message)
             return
         _save_chat_id(message.chat.id)
