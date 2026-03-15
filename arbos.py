@@ -223,7 +223,15 @@ PROXY_PORT = int(os.environ.get("PROXY_PORT", "8089"))
 PROXY_TIMEOUT = int(os.environ.get("PROXY_TIMEOUT", "600"))
 CHUTES_API_KEY = os.environ.get("CHUTES_API_KEY", "")
 
-if PROVIDER == "openrouter":
+if PROVIDER == "anthropic":
+    CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-4-6")
+    LLM_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+    LLM_BASE_URL = "https://api.anthropic.com"
+    COST_PER_M_INPUT = float(os.environ.get("COST_PER_M_INPUT", "15.00"))
+    COST_PER_M_OUTPUT = float(os.environ.get("COST_PER_M_OUTPUT", "75.00"))
+    CHUTES_ROUTING_AGENT = CLAUDE_MODEL
+    CHUTES_ROUTING_BOT = CLAUDE_MODEL
+elif PROVIDER == "openrouter":
     CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "anthropic/claude-opus-4.6")
     LLM_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
     LLM_BASE_URL = "https://openrouter.ai/api"
@@ -1010,7 +1018,7 @@ def _write_claude_settings():
     settings_dir = WORKING_DIR / ".claude"
     settings_dir.mkdir(exist_ok=True)
 
-    if PROVIDER == "openrouter":
+    if PROVIDER in ("openrouter", "anthropic"):
         env_block = {
             "ANTHROPIC_API_KEY": LLM_API_KEY,
             "ANTHROPIC_BASE_URL": LLM_BASE_URL,
@@ -1046,7 +1054,7 @@ def _write_claude_settings():
 def _claude_env() -> dict[str, str]:
     env = os.environ.copy()
     env.pop("TAU_BOT_TOKEN", None)
-    if PROVIDER == "openrouter":
+    if PROVIDER in ("openrouter", "anthropic"):
         env["ANTHROPIC_API_KEY"] = LLM_API_KEY
         env["ANTHROPIC_BASE_URL"] = LLM_BASE_URL
         env["ANTHROPIC_AUTH_TOKEN"] = ""
@@ -2019,7 +2027,8 @@ def main() -> None:
     CONTEXT_DIR.mkdir(parents=True, exist_ok=True)
 
     if not LLM_API_KEY:
-        key_name = "OPENROUTER_API_KEY" if PROVIDER == "openrouter" else "CHUTES_API_KEY"
+        key_names = {"openrouter": "OPENROUTER_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
+        key_name = key_names.get(PROVIDER, "CHUTES_API_KEY")
         _log(f"WARNING: {key_name} not set — LLM calls will fail")
 
     def _handle_sigterm(signum, frame):
@@ -2028,12 +2037,12 @@ def main() -> None:
 
     signal.signal(signal.SIGTERM, _handle_sigterm)
 
-    if PROVIDER != "openrouter":
+    if PROVIDER not in ("openrouter", "anthropic"):
         _log(f"starting chutes proxy thread (port={PROXY_PORT}, agent={CHUTES_ROUTING_AGENT}, bot={CHUTES_ROUTING_BOT})")
         threading.Thread(target=_start_proxy, daemon=True).start()
         time.sleep(1)
     else:
-        _log(f"openrouter direct mode — no proxy needed (target={LLM_BASE_URL})")
+        _log(f"{PROVIDER} direct mode — no proxy needed (target={LLM_BASE_URL})")
 
     _write_claude_settings()
 
