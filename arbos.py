@@ -224,7 +224,7 @@ PROXY_TIMEOUT = int(os.environ.get("PROXY_TIMEOUT", "600"))
 CHUTES_API_KEY = os.environ.get("CHUTES_API_KEY", "")
 
 if PROVIDER == "anthropic":
-    CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-4-6")
+    CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "opus")
     LLM_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
     LLM_BASE_URL = "https://api.anthropic.com"
     COST_PER_M_INPUT = float(os.environ.get("COST_PER_M_INPUT", "15.00"))
@@ -1532,7 +1532,7 @@ def _format_tool_activity(tool_name: str, tool_input: dict) -> str:
 
 def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
     """Run Claude Code CLI and stream output into a Telegram message."""
-    if PROVIDER == "openrouter":
+    if PROVIDER in ("openrouter", "anthropic"):
         cmd = _claude_cmd(prompt)
     else:
         cmd = _claude_cmd(prompt, extra_flags=["--model", "bot"])
