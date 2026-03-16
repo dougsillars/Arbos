@@ -1,10 +1,25 @@
-# Portfolio Analysis System - Dual Strategy Tracker
+# Dual Trusted Stake Strategy Tracker
 
-Monitor two Bittensor investment portfolios hourly and produce comparative analysis.
+Monitor and analyze two competing Trusted Stake investment strategies. Fully AI managed with human execution. Compare performance to determine best client offering.
 
-## Wallets
-- **bf_roi_pot**: `5C5FwRHVfsUUwW65SEAvh7dt7X9NKSLBEvwW1Prd15bUESvz` (concentrated, active management, 25-30%+ monthly ROI target)
-- **jpot2**: `5EvwoiVLL7uWL6gdA5eqFjScWUPDewBtd9VPaApiWx1Tx6cd` (diversified ~90 subnets, Investing88 strategy)
+## Strategy 1: AI Managed (Diversified, Low Volatility)
+- **Wallet**: `5EvwoiVLL7uWL6gdA5eqFjScWUPDewBtd9VPaApiWx1Tx6cd`
+- **wallet_key**: `ai_managed`
+- **Target**: 15-20% ROI per month (GOAL >20%)
+- **Approach**: Big spread of subnets, low volatility, steadily growing equity curve
+- **Based on**: SN88 / Investing88 methodology with AI-tuned parameters
+- **Rebalance**: Every 1-3 days to optimise for ROI
+- **Key focus**: Handle large amounts of TAO with lower risk & volatility, great returns
+
+## Strategy 2: BF ROI POT (Concentrated, Aggressive)
+- **Wallet**: `5GmSL6ioeTuybuK8Jhk34mvnQc5gowYArAShgeRhQK1QewUr`
+- **wallet_key**: `bf_roi_pot`
+- **Target**: 25-30%+ ROI per month
+- **Approach**: Fewer subnets, active daily management in/out of positions
+- **Balance**: Volatility vs ROI — push for higher returns with managed risk
+- **Example wallet**: `5Fph5Y2ZcmgNYkpkzdmy3D23FpTJWMZyARk81KE9HXfsnUqe`
+
+---
 
 ## Each Step: Check STATE.md for Timing
 
@@ -31,7 +46,7 @@ from strategies.snapshots import save_snapshot
 
 # Call save_snapshot for each wallet with the collected data
 path = save_snapshot(
-    wallet_key="bf_roi_pot",  # or "jpot2"
+    wallet_key="ai_managed",  # or "bf_roi_pot"
     account_data=account_data,   # .data[0] from GetAccountLatest
     stakes=stakes_list,           # combined .data from GetStakeBalance
     subnet_pools=pool_list,       # .data from GetLatestSubnetPool
@@ -66,11 +81,15 @@ print(weekly_summary())
 Also run rotation candidate analysis for BF ROI POT:
 ```python
 from strategies.bf_roi_pot import score_rotation_candidates
-# Pass current_netuids (from latest snapshot) and subnet_pools data
-candidates = score_rotation_candidates(current_netuids, subnet_pools)
+candidates = score_rotation_candidates()
 for c in candidates[:5]:
     print(f"SN{c['netuid']}: score={c['score']:.3f}, 24h={c['price_change_24h']:+.1f}%, liq={c['liquidity']:.0f}")
 ```
+
+Also analyze AI Managed portfolio for rebalance opportunities:
+- Flag any positions that have declined >10% in 24h
+- Identify subnets with improving momentum not currently held
+- Suggest parameter improvements based on performance trends
 
 Send combined report to operator. Update STATE.md `last_full_analysis_time`.
 
@@ -81,7 +100,8 @@ Send combined report to operator. Update STATE.md `last_full_analysis_time`.
 If INBOX.md contains a request, run the appropriate analysis:
 - "compare" / "comparison" -> `compare('24h')`
 - "bf analysis" / "roi pot" -> `bf_roi_pot.format_analysis()`
-- "88 analysis" / "jpot" -> `investing88.format_analysis()`
+- "ai analysis" / "ai managed" -> analysis of AI managed portfolio
 - "weekly" / "full report" -> `weekly_summary()`
 - "rotation" / "candidates" -> `score_rotation_candidates()`
 - "snapshot" -> force immediate snapshot for both wallets
+- "rebalance" -> rebalance analysis for AI managed strategy

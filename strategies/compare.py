@@ -13,46 +13,46 @@ def compare(period: str = "24h") -> str:
     Generate a markdown comparison table for both wallets over a given period.
     """
     bf = load_latest("bf_roi_pot", 1)
-    jp = load_latest("jpot2", 1)
+    ai = load_latest("ai_managed", 1)
 
     bf_roi = calc_roi("bf_roi_pot", period)
-    jp_roi = calc_roi("jpot2", period)
+    ai_roi = calc_roi("ai_managed", period)
 
     bf_snap = bf[0] if bf else {}
-    jp_snap = jp[0] if jp else {}
+    ai_snap = ai[0] if ai else {}
 
     bf_changes = position_changes("bf_roi_pot", PERIODS.get(period, 24))
-    jp_changes = position_changes("jpot2", PERIODS.get(period, 24))
+    ai_changes = position_changes("ai_managed", PERIODS.get(period, 24))
 
     bf_rotations = len(bf_changes.get("added", [])) + len(bf_changes.get("removed", []))
-    jp_rotations = len(jp_changes.get("added", [])) + len(jp_changes.get("removed", []))
+    ai_rotations = len(ai_changes.get("added", [])) + len(ai_changes.get("removed", []))
 
     # Determine winner
     bf_pct = bf_roi.get("tao_pct", 0)
-    jp_pct = jp_roi.get("tao_pct", 0)
-    if bf_pct > jp_pct:
-        winner = f"BF ROI POT ({bf_pct:+.2f}% vs {jp_pct:+.2f}%)"
-    elif jp_pct > bf_pct:
-        winner = f"JPOT 2 ({jp_pct:+.2f}% vs {bf_pct:+.2f}%)"
+    ai_pct = ai_roi.get("tao_pct", 0)
+    if bf_pct > ai_pct:
+        winner = f"BF ROI POT ({bf_pct:+.2f}% vs {ai_pct:+.2f}%)"
+    elif ai_pct > bf_pct:
+        winner = f"AI Managed ({ai_pct:+.2f}% vs {bf_pct:+.2f}%)"
     else:
         winner = "Tied"
 
     data_note = ""
-    if not bf_roi.get("data_complete") or not jp_roi.get("data_complete"):
+    if not bf_roi.get("data_complete") or not ai_roi.get("data_complete"):
         data_note = "\n*Note: Incomplete data for one or both wallets*"
 
     lines = [
         f"## Portfolio Comparison ({period})\n",
-        f"| Metric | BF ROI POT | JPOT 2 (88) |",
-        f"|--------|-----------|-------------|",
-        f"| Total TAO | {bf_snap.get('total_tao', 0):,.2f} | {jp_snap.get('total_tao', 0):,.2f} |",
-        f"| {period} ROI (TAO) | {bf_pct:+.2f}% | {jp_pct:+.2f}% |",
-        f"| {period} TAO Change | {bf_roi.get('tao_change', 0):+.2f} | {jp_roi.get('tao_change', 0):+.2f} |",
-        f"| Annualized | {bf_roi.get('annualized_pct', 0):+.0f}% | {jp_roi.get('annualized_pct', 0):+.0f}% |",
-        f"| Position Count | {bf_snap.get('position_count', 0)} | {jp_snap.get('position_count', 0)} |",
-        f"| Concentration (HHI) | {bf_snap.get('concentration_hhi', 0):.4f} | {jp_snap.get('concentration_hhi', 0):.4f} |",
-        f"| Top 3 Weight % | {bf_snap.get('top3_concentration_pct', 0):.1f}% | {jp_snap.get('top3_concentration_pct', 0):.1f}% |",
-        f"| Rotations ({period}) | {bf_rotations} | {jp_rotations} |",
+        f"| Metric | BF ROI POT | AI Managed |",
+        f"|--------|-----------|------------|",
+        f"| Total TAO | {bf_snap.get('total_tao', 0):,.2f} | {ai_snap.get('total_tao', 0):,.2f} |",
+        f"| {period} ROI (TAO) | {bf_pct:+.2f}% | {ai_pct:+.2f}% |",
+        f"| {period} TAO Change | {bf_roi.get('tao_change', 0):+.2f} | {ai_roi.get('tao_change', 0):+.2f} |",
+        f"| Annualized | {bf_roi.get('annualized_pct', 0):+.0f}% | {ai_roi.get('annualized_pct', 0):+.0f}% |",
+        f"| Position Count | {bf_snap.get('position_count', 0)} | {ai_snap.get('position_count', 0)} |",
+        f"| Concentration (HHI) | {bf_snap.get('concentration_hhi', 0):.4f} | {ai_snap.get('concentration_hhi', 0):.4f} |",
+        f"| Top 3 Weight % | {bf_snap.get('top3_concentration_pct', 0):.1f}% | {ai_snap.get('top3_concentration_pct', 0):.1f}% |",
+        f"| Rotations ({period}) | {bf_rotations} | {ai_rotations} |",
         f"",
         f"**Winner ({period} ROI):** {winner}",
         data_note,
@@ -66,38 +66,38 @@ def multi_period_compare() -> str:
     lines = ["# Multi-Period Portfolio Comparison\n"]
 
     bf_snap = load_latest("bf_roi_pot", 1)
-    jp_snap = load_latest("jpot2", 1)
+    ai_snap = load_latest("ai_managed", 1)
 
     if bf_snap:
         lines.append(f"**BF ROI POT:** {bf_snap[0]['total_tao']:,.2f} TAO | "
                      f"{bf_snap[0]['position_count']} positions")
-    if jp_snap:
-        lines.append(f"**JPOT 2:** {jp_snap[0]['total_tao']:,.2f} TAO | "
-                     f"{jp_snap[0]['position_count']} positions\n")
+    if ai_snap:
+        lines.append(f"**AI Managed:** {ai_snap[0]['total_tao']:,.2f} TAO | "
+                     f"{ai_snap[0]['position_count']} positions\n")
 
-    lines.append("| Period | BF ROI % | JPOT2 ROI % | BF TAO +/- | JPOT2 TAO +/- | Winner |")
-    lines.append("|--------|---------|------------|-----------|-------------|--------|")
+    lines.append("| Period | BF ROI % | AI Managed % | BF TAO +/- | AI TAO +/- | Winner |")
+    lines.append("|--------|---------|-------------|-----------|-----------|--------|")
 
     for period in ["1h", "6h", "24h", "7d", "30d"]:
         bf = calc_roi("bf_roi_pot", period)
-        jp = calc_roi("jpot2", period)
+        ai = calc_roi("ai_managed", period)
 
         bf_pct = bf.get("tao_pct", 0)
-        jp_pct = jp.get("tao_pct", 0)
+        ai_pct = ai.get("tao_pct", 0)
 
-        if bf_pct > jp_pct:
+        if bf_pct > ai_pct:
             winner = "BF"
-        elif jp_pct > bf_pct:
-            winner = "JPOT2"
+        elif ai_pct > bf_pct:
+            winner = "AI"
         else:
             winner = "Tie"
 
         flag_bf = "" if bf.get("data_complete") else "*"
-        flag_jp = "" if jp.get("data_complete") else "*"
+        flag_ai = "" if ai.get("data_complete") else "*"
 
         lines.append(
-            f"| {period} | {bf_pct:+.2f}%{flag_bf} | {jp_pct:+.2f}%{flag_jp} | "
-            f"{bf.get('tao_change', 0):+.2f} | {jp.get('tao_change', 0):+.2f} | {winner} |"
+            f"| {period} | {bf_pct:+.2f}%{flag_bf} | {ai_pct:+.2f}%{flag_ai} | "
+            f"{bf.get('tao_change', 0):+.2f} | {ai.get('tao_change', 0):+.2f} | {winner} |"
         )
 
     lines.append("\n*asterisk = incomplete data for that period*")
@@ -126,40 +126,41 @@ def weekly_summary() -> str:
 
     lines.append("\n---\n")
 
-    # JPOT2 analysis
-    jp = analyze_i88()
-    if "error" not in jp:
-        from .investing88 import format_analysis as fmt_jp
-        lines.append(fmt_jp(jp))
+    # AI Managed analysis
+    ai = analyze_i88()
+    if "error" not in ai:
+        from .investing88 import format_analysis as fmt_ai
+        lines.append(fmt_ai(ai))
     else:
-        lines.append(f"**JPOT 2:** {jp.get('error', 'No data')}")
+        lines.append(f"**AI Managed:** {ai.get('error', 'No data')}")
 
     lines.append("\n---\n")
 
     # Key observations
     lines.append("## Key Observations\n")
-    if "error" not in bf and "error" not in jp:
+    if "error" not in bf and "error" not in ai:
         bf_total = bf["total_tao"]
-        jp_total = jp["total_tao"]
+        ai_total = ai["total_tao"]
         bf_positions = bf["position_count"]
-        jp_positions = jp["position_count"]
+        ai_positions = ai["position_count"]
 
+        ratio = bf_total / ai_total if ai_total > 0 else 0
         lines.append(f"- **Size difference:** BF ROI POT ({bf_total:.0f} TAO) is "
-                     f"{bf_total/jp_total:.1f}x larger than JPOT 2 ({jp_total:.0f} TAO)")
+                     f"{ratio:.1f}x {'larger' if ratio >= 1 else 'smaller'} than AI Managed ({ai_total:.0f} TAO)")
         lines.append(f"- **Concentration:** BF uses {bf_positions} positions (HHI: {bf['concentration_hhi']:.4f}) "
-                     f"vs JPOT2's {jp_positions} positions (diversification: {jp.get('diversification_score', 0)}/100)")
+                     f"vs AI Managed's {ai_positions} positions (diversification: {ai.get('diversification_score', 0)}/100)")
 
         if bf.get("projected_monthly_roi") is not None:
             status = "ON" if bf["on_target"] else "BELOW"
             lines.append(f"- **BF ROI POT target:** {bf['projected_monthly_roi']:+.1f}% monthly projection "
                          f"({status} target of {bf['target_range']})")
 
-        i88 = jp.get("i88_score", {})
+        i88 = ai.get("i88_score", {})
         if not i88.get("insufficient_data"):
-            lines.append(f"- **JPOT2 I88 score:** {i88['score']:.4f} "
+            lines.append(f"- **AI Managed I88 score:** {i88['score']:.4f} "
                          f"(MAR: {i88['mar']:.2f}, LSR: {i88['lsr']:.2f})")
 
-        if jp.get("laggards"):
-            lines.append(f"- **JPOT2 laggards:** {len(jp['laggards'])} subnets below -2% (24h)")
+        if ai.get("laggards"):
+            lines.append(f"- **AI Managed laggards:** {len(ai['laggards'])} subnets below -2% (24h)")
 
     return "\n".join(lines)

@@ -22,7 +22,7 @@ from .snapshots import load_latest, load_range
 from .performance import calc_roi, position_changes
 
 
-WALLET_KEY = "jpot2"
+WALLET_KEY = "ai_managed"
 
 
 def _kelly(p, b):
