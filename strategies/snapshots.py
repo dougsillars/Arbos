@@ -109,6 +109,7 @@ def save_snapshot(wallet_key: str, account_data: dict, stakes: list,
         "concentration_hhi": round(hhi, 6),
         "top3_concentration_pct": round(top3_pct, 2),
         "positions": positions,
+        "all_subnet_pools": pool_data if pool_data else {},
     }
 
     # Save to file

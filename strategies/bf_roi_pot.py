@@ -90,7 +90,7 @@ def analyze() -> dict:
     }
 
 
-def score_rotation_candidates(current_netuids: list, subnet_pools: list) -> list:
+def score_rotation_candidates(current_netuids: list = None, subnet_pools: list = None) -> list:
     """
     Score subnets NOT currently held as potential rotation candidates.
 
@@ -99,13 +99,34 @@ def score_rotation_candidates(current_netuids: list, subnet_pools: list) -> list
     - Liquidity depth (30% weight)
     - Market cap ranking (30% weight)
 
-    Args:
-        current_netuids: List of netuids currently held
-        subnet_pools: Raw list from GetLatestSubnetPool
+    If current_netuids or subnet_pools are not provided, they are extracted
+    from the latest snapshot automatically.
 
     Returns:
         Top 10 candidates sorted by score
     """
+    if current_netuids is None or subnet_pools is None:
+        latest = load_latest(WALLET_KEY, 1)
+        if not latest:
+            return []
+        snap = latest[0]
+        if current_netuids is None:
+            current_netuids = [p["netuid"] for p in snap["positions"]]
+        if subnet_pools is None:
+            # Reconstruct pool-like dicts from stored all_subnet_pools
+            all_pools = snap.get("all_subnet_pools", {})
+            subnet_pools = []
+            for nid_str, pool in all_pools.items():
+                subnet_pools.append({
+                    "netuid": int(nid_str),
+                    "price": pool.get("price", 0),
+                    "market_cap": pool.get("market_cap", 0),
+                    "price_change_one_hour": pool.get("price_change_1h", 0),
+                    "price_change_one_day": pool.get("price_change_24h", 0),
+                    "price_change_one_week": pool.get("price_change_7d", 0),
+                    "tao_volume_one_day": pool.get("volume_24h", 0),
+                    "liquidity": pool.get("liquidity", 0),
+                })
     held = set(current_netuids)
     candidates = []
 
