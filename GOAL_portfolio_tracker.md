@@ -2,13 +2,14 @@
 
 Monitor and analyze two competing Trusted Stake investment strategies. Fully AI managed with human execution. Compare performance to determine best client offering.
 
+**IMPORTANT: Be token-efficient. Minimize Claude API calls and output. Taostats API calls are cheap — use them freely. Do NOT send Telegram messages unless it's a scheduled daily report or operator request.**
+
 ## Strategy 1: AI Managed (Diversified, Low Volatility)
 - **Wallet**: `5EvwoiVLL7uWL6gdA5eqFjScWUPDewBtd9VPaApiWx1Tx6cd`
 - **wallet_key**: `ai_managed`
 - **Target**: 15-20% ROI per month (GOAL >20%)
 - **Approach**: Big spread of subnets, low volatility, steadily growing equity curve
 - **Based on**: SN88 / Investing88 methodology with AI-tuned parameters
-- **Rebalance**: Every 1-3 days to optimise for ROI
 - **Key focus**: Handle large amounts of TAO with lower risk & volatility, great returns
 
 ## Strategy 2: BF ROI POT (Concentrated, Aggressive)
@@ -23,62 +24,56 @@ Monitor and analyze two competing Trusted Stake investment strategies. Fully AI 
 
 ## Each Step: Check STATE.md for Timing
 
-Read STATE.md to determine what action to take. It tracks: `last_snapshot_time`, `last_comparison_time`, `last_full_analysis_time`.
+Read STATE.md to determine what action to take. It tracks: `last_snapshot_time`, `last_report_time`, `last_suggestion_review_time`.
+
+**If nothing is due, update STATE.md with `last_check_time` and exit the step immediately. Do NOT generate output or send messages.**
 
 ---
 
-### Hourly Snapshots (if >55 min since last_snapshot_time)
+### 12-Hour Snapshots (if >11.5 hours since last_snapshot_time)
 
 For EACH wallet address:
 
 1. `mcp__taostats__GetAccountLatest(address=WALLET_ADDRESS)` -> save the `.data[0]` result
 2. `mcp__taostats__GetStakeBalance(coldkey=WALLET_ADDRESS, limit=100, order="balance_as_tao_desc")`
    - If pagination shows more pages, fetch page=2, etc. until all positions retrieved
-   - Concatenate all `.data` arrays
 3. `mcp__taostats__GetLatestSubnetPool(limit=100, order="netuid_asc")` (fetch once, shared)
    - Fetch page=2 if needed for full coverage
+4. Fetch 12-hour price history for ALL subnets (~128 subnets, use limit=200 per page):
+   `mcp__taostats__GetDtaoPoolHistoryV1(netuid=NETUID, frequency="by_hour", limit=12, order="timestamp_desc")`
+   Do this for every netuid (1-128+). ~8 pages of calls. This data is essential for finding opportunities across ALL subnets, not just held ones.
+   (Account history endpoint only updates daily, so use subnet pool history for intraday price tracking)
 
-4. Save snapshots using Python:
+5. Save snapshots using Python:
 ```python
 import json, sys
 sys.path.insert(0, '.')
 from strategies.snapshots import save_snapshot
 
-# Call save_snapshot for each wallet with the collected data
 path = save_snapshot(
     wallet_key="ai_managed",  # or "bf_roi_pot"
-    account_data=account_data,   # .data[0] from GetAccountLatest
-    stakes=stakes_list,           # combined .data from GetStakeBalance
-    subnet_pools=pool_list,       # .data from GetLatestSubnetPool
+    account_data=account_data,
+    stakes=stakes_list,
+    subnet_pools=pool_list,
 )
 print(f"Saved: {path}")
 ```
 
-5. Update STATE.md: set `last_snapshot_time` to current UTC ISO timestamp
+6. Update STATE.md: set `last_snapshot_time` to current UTC ISO timestamp
 
 ---
 
-### 6-Hour Comparison (if >5.5 hours since last_comparison_time)
+### Daily Report (if >23 hours since last_report_time)
+
+Generate a combined report and send to operator via Telegram:
 
 ```python
 sys.path.insert(0, '.')
-from strategies.compare import compare
+from strategies.compare import compare, weekly_summary
 print(compare('24h'))
 ```
 
-Send output to operator via Telegram. Update STATE.md `last_comparison_time`.
-
----
-
-### Daily Full Analysis (if >23 hours since last_full_analysis_time)
-
-```python
-sys.path.insert(0, '.')
-from strategies.compare import weekly_summary
-print(weekly_summary())
-```
-
-Also run rotation candidate analysis for BF ROI POT:
+Also run rotation candidate analysis:
 ```python
 from strategies.bf_roi_pot import score_rotation_candidates
 candidates = score_rotation_candidates()
@@ -86,12 +81,84 @@ for c in candidates[:5]:
     print(f"SN{c['netuid']}: score={c['score']:.3f}, 24h={c['price_change_24h']:+.1f}%, liq={c['liquidity']:.0f}")
 ```
 
-Also analyze AI Managed portfolio for rebalance opportunities:
-- Flag any positions that have declined >10% in 24h
-- Identify subnets with improving momentum not currently held
-- Suggest parameter improvements based on performance trends
+Include suggestion accuracy stats in the report (see below).
 
-Send combined report to operator. Update STATE.md `last_full_analysis_time`.
+Update STATE.md `last_report_time`.
+
+**This is the ONLY scheduled Telegram message. Do not message the operator at other times unless requested.**
+
+---
+
+### Predictions & Suggestions System
+
+**This is a core feature.** On each snapshot, generate and track investment suggestions.
+
+#### Generating Suggestions
+After each 12-hour snapshot, analyze ALL subnet price histories and generate specific, actionable suggestions for each wallet:
+- "Rotate out of SN{X} into SN{Y}" (with rationale: momentum, liquidity, risk)
+- "Increase position in SN{X} by Z%"
+- "Reduce exposure to SN{X}"
+- "Add new position in SN{Y}"
+
+Use the full 12-hour price history across ALL subnets to identify momentum trends, mean reversion opportunities, and relative strength — not just point-in-time prices.
+
+Save suggestions to `context/suggestions/{wallet_key}/{YYYY-MM-DD}.json`:
+```json
+{
+  "timestamp": "ISO timestamp",
+  "wallet_key": "bf_roi_pot",
+  "suggestions": [
+    {
+      "id": "uuid",
+      "action": "rotate_out",
+      "from_netuid": 5,
+      "to_netuid": 12,
+      "rationale": "SN5 declining 3 consecutive snapshots, SN12 momentum +8% 12h with strong liquidity",
+      "confidence": 0.7,
+      "expected_impact_pct": 2.5
+    }
+  ],
+  "market_context": {
+    "tao_trend": "bullish/bearish/neutral",
+    "top_movers": [{"netuid": 12, "change_12h": 8.5}]
+  }
+}
+```
+
+#### Reviewing Suggestions (if >23 hours since last_suggestion_review_time)
+Once daily, review past suggestions against actual outcomes:
+1. Load suggestions from 24h, 48h, and 7d ago
+2. Check what actually happened to the suggested subnets using pool history:
+   `mcp__taostats__GetDtaoPoolHistoryV1(netuid=NETUID, frequency="by_hour", limit=24, order="timestamp_desc")`
+3. Score each suggestion: did the recommended action outperform what happened?
+4. Save review to `context/suggestions/reviews/{YYYY-MM-DD}.json`:
+```json
+{
+  "timestamp": "ISO timestamp",
+  "reviews": [
+    {
+      "suggestion_id": "uuid",
+      "suggestion_date": "2026-03-16",
+      "action": "rotate_out SN5 -> SN12",
+      "actual_from_change_pct": -2.1,
+      "actual_to_change_pct": 5.3,
+      "would_have_gained_pct": 7.4,
+      "verdict": "good_call",
+      "confidence_was": 0.7
+    }
+  ],
+  "accuracy_summary": {
+    "total_reviewed": 5,
+    "good_calls": 3,
+    "bad_calls": 2,
+    "accuracy_pct": 60.0,
+    "cumulative_accuracy_pct": 58.0
+  }
+}
+```
+
+5. Use past accuracy to calibrate future confidence scores — if a type of suggestion has been historically wrong, lower its confidence
+6. Update STATE.md `last_suggestion_review_time`
 
 ---
 
@@ -104,4 +171,5 @@ If INBOX.md contains a request, run the appropriate analysis:
 - "weekly" / "full report" -> `weekly_summary()`
 - "rotation" / "candidates" -> `score_rotation_candidates()`
 - "snapshot" -> force immediate snapshot for both wallets
-- "rebalance" -> rebalance analysis for AI managed strategy
+- "suggestions" -> show latest suggestions and accuracy stats
+- "review" -> force suggestion review
