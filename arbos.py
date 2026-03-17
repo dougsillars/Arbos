@@ -1391,11 +1391,12 @@ def agent_loop():
             _log(f"failure #{failures}")
 
         _agent_wake.clear()
+        step_delay = int(os.environ.get("AGENT_DELAY", "21600"))  # default 6 hours
         if failures:
             backoff = min(2 ** failures, 120)
-            delay = int(os.environ.get("AGENT_DELAY", "0")) + backoff
-            _log(f"waiting {delay}s before next step (failure backoff)")
-            _agent_wake.wait(timeout=delay)
+            step_delay += backoff
+        _log(f"waiting {step_delay}s before next step")
+        _agent_wake.wait(timeout=step_delay)
 
 
 def transcribe_voice(file_path: str, fmt: str = "ogg") -> str:
