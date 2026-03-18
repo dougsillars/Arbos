@@ -30,7 +30,7 @@ Read STATE.md to determine what action to take. It tracks: `last_snapshot_time`,
 
 ---
 
-### 12-Hour Snapshots (if >11.5 hours since last_snapshot_time)
+### 4-Hour Snapshots (if >3.5 hours since last_snapshot_time)
 
 For EACH wallet address:
 
@@ -39,8 +39,16 @@ For EACH wallet address:
    - If pagination shows more pages, fetch page=2, etc. until all positions retrieved
 3. `mcp__taostats__GetLatestSubnetPool(limit=100, order="netuid_asc")` (fetch once, shared)
    - Fetch page=2 if needed for full coverage
-4. Fetch 12-hour price history for ALL subnets (~128 subnets, use limit=200 per page):
-   `mcp__taostats__GetDtaoPoolHistoryV1(netuid=NETUID, frequency="by_hour", limit=12, order="timestamp_desc")`
+4. Fetch TAO flow data for ALL subnets via `subnet/latest/v1` (or use taostats MCP equivalent):
+   Each subnet has `net_flow_1_day`, `net_flow_7_days`, `net_flow_30_days` — these indicate TAO flowing in/out of a subnet.
+   - Positive flow = investors adding TAO (bullish signal)
+   - Negative flow = investors withdrawing TAO (bearish signal)
+   - Track changes in flow between snapshots — a subnet shifting from negative to positive 1D flow is a leading indicator
+   - Compare 1D vs 7D vs 30D to identify trend reversals (e.g., negative 30D but positive 1D = potential recovery)
+   Store flow data alongside pool data in snapshots for trend analysis.
+
+5. Fetch 4-hour price history for ALL subnets (~128 subnets, use limit=200 per page):
+   `mcp__taostats__GetDtaoPoolHistoryV1(netuid=NETUID, frequency="by_hour", limit=4, order="timestamp_desc")`
    Do this for every netuid (1-128+). ~8 pages of calls. This data is essential for finding opportunities across ALL subnets, not just held ones.
    (Account history endpoint only updates daily, so use subnet pool history for intraday price tracking)
 
@@ -94,13 +102,18 @@ Update STATE.md `last_report_time`.
 **This is a core feature.** On each snapshot, generate and track investment suggestions.
 
 #### Generating Suggestions
-After each 12-hour snapshot, analyze ALL subnet price histories and generate specific, actionable suggestions for each wallet:
+After each 4-hour snapshot, analyze ALL subnet price histories and generate specific, actionable suggestions for each wallet:
 - "Rotate out of SN{X} into SN{Y}" (with rationale: momentum, liquidity, risk)
 - "Increase position in SN{X} by Z%"
 - "Reduce exposure to SN{X}"
 - "Add new position in SN{Y}"
 
-Use the full 12-hour price history across ALL subnets to identify momentum trends, mean reversion opportunities, and relative strength — not just point-in-time prices.
+Use the full 4-hour price history AND tao_flow data across ALL subnets to identify:
+- **Momentum trends**: price + positive flow = strong conviction
+- **Flow divergence**: price flat/down but flow turning positive = early entry signal
+- **Exodus signals**: negative flow accelerating = exit signal
+- **Mean reversion**: oversold subnets with flow stabilizing
+- Compare 1D/7D/30D flow to spot trend reversals
 
 Save suggestions to `context/suggestions/{wallet_key}/{YYYY-MM-DD}.json`:
 ```json
@@ -113,14 +126,15 @@ Save suggestions to `context/suggestions/{wallet_key}/{YYYY-MM-DD}.json`:
       "action": "rotate_out",
       "from_netuid": 5,
       "to_netuid": 12,
-      "rationale": "SN5 declining 3 consecutive snapshots, SN12 momentum +8% 12h with strong liquidity",
+      "rationale": "SN5 declining 3 consecutive snapshots with -2k TAO 1D flow, SN12 momentum +8% 4h with +5k TAO 1D flow and strong liquidity",
       "confidence": 0.7,
       "expected_impact_pct": 2.5
     }
   ],
   "market_context": {
     "tao_trend": "bullish/bearish/neutral",
-    "top_movers": [{"netuid": 12, "change_12h": 8.5}]
+    "top_movers": [{"netuid": 12, "change_4h": 8.5, "net_flow_1d": 5000}],
+    "flow_signals": [{"netuid": 15, "flow_reversal": "neg_to_pos", "net_flow_1d": 1200, "net_flow_7d": -3000}]
   }
 }
 ```

@@ -1391,7 +1391,7 @@ def agent_loop():
             _log(f"failure #{failures}")
 
         _agent_wake.clear()
-        step_delay = int(os.environ.get("AGENT_DELAY", "21600"))  # default 6 hours
+        step_delay = int(os.environ.get("AGENT_DELAY", "14400"))  # default 4 hours
         if failures:
             backoff = min(2 ** failures, 120)
             step_delay += backoff
