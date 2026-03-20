@@ -1076,7 +1076,6 @@ def _run_claude_once(cmd, env, on_text=None, on_activity=None):
         cmd, cwd=WORKING_DIR, env=env,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, bufsize=1,
     )
     with _child_procs_lock:
         _child_procs.add(proc)
@@ -1103,9 +1102,10 @@ def _run_claude_once(cmd, env, on_text=None, on_activity=None):
                 if proc.poll() is not None:
                     break
                 continue
-            line = proc.stdout.readline()
-            if not line:
+            raw = proc.stdout.readline()
+            if not raw:
                 break
+            line = raw.decode("utf-8", errors="replace")
             last_activity = time.monotonic()
             raw_lines.append(line)
             try:
@@ -1163,7 +1163,7 @@ def _run_claude_once(cmd, env, on_text=None, on_activity=None):
     if timed_out:
         stderr_output = "(timed out)"
     else:
-        stderr_output = proc.stderr.read() if proc.stderr else ""
+        stderr_output = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
 
     returncode = proc.wait()
     with _child_procs_lock:
