@@ -1389,9 +1389,68 @@ def run_step(prompt: str, step_number: int, goal_step: int = 0) -> bool:
 
 # ── Agent loop ───────────────────────────────────────────────────────────────
 
+def _parse_state_times() -> dict[str, datetime | None]:
+    """Parse ISO timestamps from STATE.md. Returns dict of field -> datetime (UTC)."""
+    from datetime import datetime, timezone
+    result = {}
+    if not STATE_FILE.exists():
+        return result
+    for line in STATE_FILE.read_text().splitlines():
+        if ":" not in line or line.startswith("#"):
+            continue
+        key, _, val = line.partition(":")
+        key = key.strip()
+        val = val.strip()
+        if val and val != "never":
+            try:
+                # Handle various ISO formats
+                dt = datetime.fromisoformat(val.replace("Z", "+00:00"))
+                result[key] = dt
+            except ValueError:
+                pass
+        elif val == "never":
+            result[key] = None
+    return result
+
+
+def _check_work_due() -> str | None:
+    """Check STATE.md to see if any scheduled work is due. Returns reason or None."""
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    times = _parse_state_times()
+
+    # Check inbox first — always process immediately
+    if INBOX_FILE.exists():
+        inbox = INBOX_FILE.read_text().strip()
+        if inbox:
+            return f"inbox message: {inbox[:50]}"
+
+    # Snapshot due if >3.5 hours since last
+    last_snap = times.get("last_snapshot_time")
+    if last_snap is None or (now - last_snap) > timedelta(hours=3, minutes=30):
+        ago = "never" if last_snap is None else f"{(now - last_snap).total_seconds() / 3600:.1f}h ago"
+        return f"snapshot due (last: {ago})"
+
+    # Daily report due if >23 hours since last
+    last_report = times.get("last_report_time")
+    if last_report is None or (now - last_report) > timedelta(hours=23):
+        ago = "never" if last_report is None else f"{(now - last_report).total_seconds() / 3600:.1f}h ago"
+        return f"daily report due (last: {ago})"
+
+    # Suggestion review due if >23 hours since last
+    last_review = times.get("last_suggestion_review_time")
+    if last_review is None or (now - last_review) > timedelta(hours=23):
+        ago = "never" if last_review is None else f"{(now - last_review).total_seconds() / 3600:.1f}h ago"
+        return f"suggestion review due (last: {ago})"
+
+    return None
+
+
 def agent_loop():
     global _step_count, _goal_hash, _goal_step_count
     failures = 0
+    poll_interval = int(os.environ.get("AGENT_POLL", "60"))  # check state every 60s
+    quick_delay = int(os.environ.get("AGENT_QUICK_DELAY", "30"))  # between active steps
 
     while True:
         try:
@@ -1402,6 +1461,14 @@ def agent_loop():
                     _goal_step_count = 0
                 _agent_wake.wait(timeout=5)
                 continue
+
+            # Check if any work is actually due — pure Python, no Claude call
+            reason = _check_work_due()
+            if reason is None:
+                _agent_wake.wait(timeout=poll_interval)
+                continue
+
+            _log(f"work due: {reason}")
 
             import hashlib
             current_goal = GOAL_FILE.read_text().strip()
@@ -1441,39 +1508,11 @@ def agent_loop():
 
         _agent_wake.clear()
 
-        idle_delay = int(os.environ.get("AGENT_DELAY", "14400"))  # long delay when nothing due
-        quick_delay = int(os.environ.get("AGENT_QUICK_DELAY", "30"))  # short delay between active steps
-
         if failures:
-            step_delay = min(60 * (2 ** failures), 3600)  # 1m, 2m, 4m... up to 1hr
+            step_delay = min(60 * (2 ** failures), 3600)
             _log(f"failure backoff: {step_delay}s")
-        elif success:
-            # Check if the step signaled "nothing due" — use long idle delay.
-            # Otherwise it did real work and may need a follow-up step soon.
-            rollout = ""
-            try:
-                latest_runs = sorted(
-                    [d for d in RUNS_DIR.iterdir() if d.is_dir()],
-                    key=lambda d: d.name, reverse=True,
-                )
-                if latest_runs:
-                    rp = latest_runs[0] / "rollout.md"
-                    if rp.exists():
-                        rollout = rp.read_text().lower()
-            except OSError:
-                pass
-            nothing_due = any(phrase in rollout for phrase in [
-                "nothing is due", "nothing due", "no actions due",
-                "exit the step", "exiting step", "no tasks due",
-                "updated last_check_time", "last_check_time",
-            ])
-            if nothing_due:
-                step_delay = idle_delay
-                _log(f"step signaled nothing due — idle for {step_delay}s")
-            else:
-                step_delay = quick_delay
-                _log(f"step did work — quick follow-up in {step_delay}s")
         else:
+            # After successful work, quick check in case multi-step task
             step_delay = quick_delay
 
         _log(f"waiting {step_delay}s before next step")
