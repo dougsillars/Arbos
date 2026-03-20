@@ -1352,43 +1352,50 @@ def agent_loop():
     failures = 0
 
     while True:
-        if not GOAL_FILE.exists() or not GOAL_FILE.read_text().strip():
-            if _goal_hash:
-                _log(f"goal cleared after {_goal_step_count} steps")
-                _goal_hash = ""
+        try:
+            if not GOAL_FILE.exists() or not GOAL_FILE.read_text().strip():
+                if _goal_hash:
+                    _log(f"goal cleared after {_goal_step_count} steps")
+                    _goal_hash = ""
+                    _goal_step_count = 0
+                _agent_wake.wait(timeout=5)
+                continue
+
+            import hashlib
+            current_goal = GOAL_FILE.read_text().strip()
+            current_hash = hashlib.sha256(current_goal.encode()).hexdigest()[:16]
+            if current_hash != _goal_hash:
+                if _goal_hash:
+                    _log(f"goal changed after {_goal_step_count} steps on previous goal")
+                _goal_hash = current_hash
                 _goal_step_count = 0
-            _agent_wake.wait(timeout=5)
-            continue
+                _log(f"new goal [{current_hash}]: {current_goal[:100]}")
 
+            _step_count += 1
+            _goal_step_count += 1
+            _log(f"Step {_step_count} (goal step {_goal_step_count})", blank=True)
 
-        import hashlib
-        current_goal = GOAL_FILE.read_text().strip()
-        current_hash = hashlib.sha256(current_goal.encode()).hexdigest()[:16]
-        if current_hash != _goal_hash:
-            if _goal_hash:
-                _log(f"goal changed after {_goal_step_count} steps on previous goal")
-            _goal_hash = current_hash
-            _goal_step_count = 0
-            _log(f"new goal [{current_hash}]: {current_goal[:100]}")
+            prompt = load_prompt(consume_inbox=True, goal_step=_goal_step_count)
+            if not prompt:
+                _agent_wake.wait(timeout=5)
+                continue
 
-        _step_count += 1
-        _goal_step_count += 1
-        _log(f"Step {_step_count} (goal step {_goal_step_count})", blank=True)
+            _log(f"prompt={len(prompt)} chars")
 
-        prompt = load_prompt(consume_inbox=True, goal_step=_goal_step_count)
-        if not prompt:
-            _agent_wake.wait(timeout=5)
-            continue
+            success = run_step(prompt, _step_count, goal_step=_goal_step_count)
 
-        _log(f"prompt={len(prompt)} chars")
+            if success:
+                failures = 0
+            else:
+                failures += 1
+                _log(f"failure #{failures}")
 
-        success = run_step(prompt, _step_count, goal_step=_goal_step_count)
-
-        if success:
-            failures = 0
-        else:
+        except Exception as exc:
+            import traceback
             failures += 1
-            _log(f"failure #{failures}")
+            _log(f"agent_loop CRASH (failure #{failures}): {exc}")
+            _log(traceback.format_exc()[:500])
+            _send_telegram_text(f"agent loop crashed on step {_step_count}: {str(exc)[:200]}")
 
         _agent_wake.clear()
         step_delay = int(os.environ.get("AGENT_DELAY", "14400"))  # default 4 hours
