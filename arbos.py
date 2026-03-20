@@ -1431,6 +1431,14 @@ def _check_work_due() -> str | None:
         ago = "never" if last_snap is None else f"{(now - last_snap).total_seconds() / 3600:.1f}h ago"
         return f"snapshot due (last: {ago})"
 
+    # Reports and reviews only make sense if we have recent snapshots.
+    # Need at least 2 snapshots to compute ROI, and last snapshot should be recent.
+    from strategies.snapshots import load_latest
+    has_data = len(load_latest("bf_roi_pot", 2)) >= 2 or len(load_latest("ai_managed", 2)) >= 2
+
+    if not has_data:
+        return None
+
     # Daily report due if >23 hours since last
     last_report = times.get("last_report_time")
     if last_report is None or (now - last_report) > timedelta(hours=23):
