@@ -1014,9 +1014,18 @@ def _claude_cmd(prompt: str, extra_flags: list[str] | None = None) -> list[str]:
 
 
 def _write_claude_settings():
-    """Point Claude Code at the active provider (OpenRouter direct or Chutes proxy)."""
+    """Point Claude Code at the active provider, merging with existing settings."""
     settings_dir = WORKING_DIR / ".claude"
     settings_dir.mkdir(exist_ok=True)
+    settings_path = settings_dir / "settings.local.json"
+
+    # Load existing settings so we don't clobber MCP config, extra permissions, etc.
+    existing = {}
+    if settings_path.exists():
+        try:
+            existing = json.loads(settings_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
 
     if PROVIDER in ("openrouter", "anthropic"):
         env_block = {
@@ -1036,18 +1045,29 @@ def _write_claude_settings():
         }
         target_label = proxy_url
 
-    settings = {
-        "model": CLAUDE_MODEL,
-        "permissions": {
-            "allow": [
-                "Bash(*)", "Read(*)", "Write(*)", "Edit(*)",
-                "Glob(*)", "Grep(*)", "WebFetch(*)", "WebSearch(*)",
-                "TodoWrite(*)", "NotebookEdit(*)", "Task(*)",
-            ],
-        },
-        "env": env_block,
-    }
-    (settings_dir / "settings.local.json").write_text(json.dumps(settings, indent=2))
+    # Required permissions for the agent subprocess
+    required_perms = [
+        "Bash(*)", "Read(*)", "Write(*)", "Edit(*)",
+        "Glob(*)", "Grep(*)", "WebFetch(*)", "WebSearch(*)",
+        "TodoWrite(*)", "NotebookEdit(*)", "Task(*)",
+        "mcp__taostats__*",
+    ]
+
+    # Merge: keep any existing permissions (e.g. MCP tools), add ours
+    existing_perms = existing.get("permissions", {}).get("allow", [])
+    merged_perms = list(dict.fromkeys(existing_perms + required_perms))
+
+    # Merge env: existing env vars preserved, ours override
+    existing_env = existing.get("env", {})
+    existing_env.update(env_block)
+
+    # Preserve existing keys we don't manage (e.g. mcpServers)
+    settings = existing.copy()
+    settings["model"] = CLAUDE_MODEL
+    settings["permissions"] = {"allow": merged_perms}
+    settings["env"] = existing_env
+
+    settings_path.write_text(json.dumps(settings, indent=2))
     _log(f"wrote .claude/settings.local.json (provider={PROVIDER}, model={CLAUDE_MODEL}, target={target_label})")
 
 
