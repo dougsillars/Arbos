@@ -73,12 +73,19 @@ print(f"Saved: {path}")
 
 ### Daily Report (if >23 hours since last_report_time)
 
-Generate a combined report and send to operator via Telegram:
+Generate a combined report and send to operator via Telegram (write to `context/outbox/`):
 
 ```python
-sys.path.insert(0, '.')
+import sys; sys.path.insert(0, '.')
+from pathlib import Path
+from datetime import datetime, timezone
 from strategies.compare import compare, weekly_summary
-print(compare('24h'))
+
+report = compare('24h')
+outbox = Path("context/outbox")
+outbox.mkdir(parents=True, exist_ok=True)
+ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+(outbox / f"daily_report_{ts}.md").write_text(report)
 ```
 
 Also run rotation candidate analysis:
@@ -173,6 +180,23 @@ Once daily, review past suggestions against actual outcomes:
 
 5. Use past accuracy to calibrate future confidence scores — if a type of suggestion has been historically wrong, lower its confidence
 6. Update STATE.md `last_suggestion_review_time`
+
+---
+
+### Sending Telegram Messages
+
+**You do NOT have direct access to the Telegram API.** To send a message to the operator, write a `.md` file to `context/outbox/`. After your step finishes, arbos will send it and delete the file.
+
+```python
+from pathlib import Path
+from datetime import datetime, timezone
+outbox = Path("context/outbox")
+outbox.mkdir(parents=True, exist_ok=True)
+ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+(outbox / f"report_{ts}.md").write_text("Your report text here")
+```
+
+Each file becomes one Telegram message (auto-split if >4000 chars). Use this for daily reports, operator responses, etc.
 
 ---
 
