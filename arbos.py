@@ -31,6 +31,7 @@ GOAL_FILE = CONTEXT_DIR / "GOAL.md"
 STATE_FILE = CONTEXT_DIR / "STATE.md"
 INBOX_FILE = CONTEXT_DIR / "INBOX.md"
 RUNS_DIR = CONTEXT_DIR / "runs"
+OUTBOX_DIR = CONTEXT_DIR / "outbox"
 CHATLOG_DIR = CONTEXT_DIR / "chat"
 RESTART_FLAG = WORKING_DIR / ".restart"
 STEP_MSG_FILE = CONTEXT_DIR / ".step_msg"
@@ -406,6 +407,26 @@ def load_chatlog(max_chars: int = 8000) -> str:
     if not lines:
         return ""
     return "## Recent Telegram chat\n\n" + "\n".join(lines)
+
+
+# ── Outbox: agent writes files here, arbos sends them to Telegram ────────────
+
+
+def _drain_outbox():
+    """Send all files in context/outbox/ to Telegram, then delete them."""
+    if not OUTBOX_DIR.exists():
+        return
+    for f in sorted(OUTBOX_DIR.glob("*.md")) + sorted(OUTBOX_DIR.glob("*.txt")):
+        try:
+            text = f.read_text().strip()
+            if text:
+                # Telegram max message is 4096 chars; split if needed
+                for i in range(0, len(text), 4000):
+                    _send_telegram_text(text[i:i + 4000])
+                _log(f"outbox: sent {f.name} ({len(text)} chars)")
+            f.unlink()
+        except Exception as exc:
+            _log(f"outbox: failed to send {f.name}: {str(exc)[:120]}")
 
 
 # ── Step update helpers ──────────────────────────────────────────────────────
@@ -1361,6 +1382,7 @@ def run_step(prompt: str, step_number: int, goal_step: int = 0) -> bool:
             _edit_step_msg(final, force=True)
             log_chat("bot", final[:1000])
             STEP_MSG_FILE.unlink(missing_ok=True)
+            _drain_outbox()
         except Exception as exc:
             _log(f"step message finalize failed: {str(exc)[:120]}")
 
