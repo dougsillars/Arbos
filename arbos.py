@@ -1420,6 +1420,36 @@ def _parse_state_times() -> dict[str, datetime | None]:
     return result
 
 
+def _send_snapshot_summary():
+    """Generate a brief snapshot summary and send to Telegram."""
+    try:
+        from strategies.snapshots import load_latest
+        lines = []
+        for wk in ("bf_roi_pot", "ai_managed"):
+            snaps = load_latest(wk, 1)
+            if not snaps:
+                continue
+            s = snaps[0]
+            label = "BF ROI POT" if wk == "bf_roi_pot" else "AI Managed"
+            top = s.get("positions", [])[:3]
+            top_str = ", ".join(
+                f"SN{p['netuid']}:{p['tao_value']:.1f}τ({p.get('pct_of_portfolio', 0):.0f}%)"
+                for p in top
+            )
+            lines.append(
+                f"{label}: {s.get('total_tao', 0):,.2f}τ | "
+                f"{s.get('position_count', 0)} pos | "
+                f"HHI {s.get('concentration_hhi', 0):.4f}\n"
+                f"  Top 3: {top_str}"
+            )
+        if lines:
+            ts = snaps[0].get("timestamp", "")[:16] if snaps else ""
+            msg = f"📊 Snapshot {ts} UTC\n\n" + "\n\n".join(lines)
+            _send_telegram_text(msg)
+    except Exception as exc:
+        _log(f"snapshot summary failed: {str(exc)[:120]}")
+
+
 def _update_state_time(key: str):
     """Update a timestamp field in STATE.md to current UTC time."""
     from datetime import datetime, timezone
@@ -1556,11 +1586,27 @@ def agent_loop():
 
             if success:
                 failures = 0
-                # Update STATE.md so Python knows this work is done —
-                # don't rely on Claude subprocess to do it
+                # Verify the work was actually done before updating STATE.md.
+                # rc=0 just means Claude exited cleanly, not that it did the task.
                 if reason_key == "snapshot due":
-                    _update_state_time("last_snapshot_time")
+                    from strategies.snapshots import load_latest
+                    from datetime import datetime, timezone, timedelta
+                    latest = load_latest("bf_roi_pot", 1) or load_latest("ai_managed", 1)
+                    if latest:
+                        snap_time = datetime.fromisoformat(latest[0]["timestamp"].replace("Z", "+00:00"))
+                        if (datetime.now(timezone.utc) - snap_time) < timedelta(minutes=10):
+                            _update_state_time("last_snapshot_time")
+                            _log("snapshot verified — new file found")
+                            _send_snapshot_summary()
+                        else:
+                            _log(f"snapshot NOT verified — latest is from {latest[0]['timestamp']}, not updating state")
+                            failures += 1
+                    else:
+                        _log("snapshot NOT verified — no snapshot files found")
+                        failures += 1
                 elif reason_key == "daily report due":
+                    # Outbox gets drained in run_step, so check if it was non-empty
+                    # Trust the step for reports — they go to outbox which is already drained
                     _update_state_time("last_report_time")
                 elif reason_key == "suggestion review due":
                     _update_state_time("last_suggestion_review_time")
