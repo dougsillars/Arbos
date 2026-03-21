@@ -1490,13 +1490,27 @@ def _check_work_due() -> str | None:
     if INBOX_FILE.exists():
         inbox = INBOX_FILE.read_text().strip()
         if inbox:
-            # Handle simple commands in Python — no need to spawn Claude
             inbox_lower = inbox.lower()
-            if any(w in inbox_lower for w in ["summary", "snapshot", "status", "report"]):
+
+            # "send summary/status" → send existing snapshot data, no Claude needed
+            if any(w in inbox_lower for w in ["summary", "status"]):
                 _send_snapshot_summary()
                 INBOX_FILE.write_text("")
                 _log(f"inbox handled in Python: sent snapshot summary for '{inbox[:50]}'")
-                return None  # handled, no Claude needed
+                return None
+
+            # Force-trigger: operator wants work done NOW regardless of timing
+            if any(w in inbox_lower for w in ["run", "force", "do it", "execute"]):
+                INBOX_FILE.write_text("")
+                _log(f"inbox force-trigger: '{inbox[:50]}'")
+                return f"snapshot due (forced by operator)"
+
+            # "report" / "compare" → force a report
+            if any(w in inbox_lower for w in ["report", "compare", "analysis"]):
+                INBOX_FILE.write_text("")
+                _log(f"inbox force-trigger report: '{inbox[:50]}'")
+                return f"daily report due (forced by operator)"
+
             return f"inbox message: {inbox[:50]}"
 
     # Snapshot due if >3.5 hours since last
