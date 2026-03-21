@@ -1536,6 +1536,8 @@ def agent_loop():
             # Check if any work is actually due — pure Python, no Claude call
             reason = _check_work_due()
             if reason is None:
+                if _last_reason is not None:
+                    _log("nothing due — entering idle polling")
                 _last_reason = None
                 _same_reason_count = 0
                 _agent_wake.wait(timeout=poll_interval)
@@ -2119,6 +2121,17 @@ def run_bot():
             return
         _save_chat_id(message.chat.id)
         log_chat("user", message.text)
+
+        # If there's an active goal, route to the agent loop via INBOX
+        goal_active = GOAL_FILE.exists() and GOAL_FILE.read_text().strip()
+        if goal_active:
+            INBOX_FILE.parent.mkdir(parents=True, exist_ok=True)
+            INBOX_FILE.write_text(message.text.strip())
+            _agent_wake.set()
+            bot.send_message(message.chat.id, f"Queued for agent loop.")
+            return
+
+        # No active goal — handle with one-shot Claude
         prompt = _build_operator_prompt(message.text)
 
         def _run():
