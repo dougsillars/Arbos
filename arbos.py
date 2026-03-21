@@ -318,9 +318,11 @@ def fmt_tokens(inp: int, out: int, elapsed: float = 0) -> str:
 
 # ── Prompt helpers ───────────────────────────────────────────────────────────
 
-def load_prompt(consume_inbox: bool = False, goal_step: int = 0) -> str:
+def load_prompt(consume_inbox: bool = False, goal_step: int = 0, action_override: str = "") -> str:
     """Build full prompt: PROMPT.md + GOAL.md + STATE.md + INBOX.md + chatlog."""
     parts = []
+    if action_override:
+        parts.append(f"## IMMEDIATE ACTION REQUIRED\n\n{action_override}\n\nDo this NOW. Do not check timing. Do not skip because it was done recently.")
     if PROMPT_FILE.exists():
         text = PROMPT_FILE.read_text().strip()
         if text:
@@ -1602,7 +1604,16 @@ def agent_loop():
             _goal_step_count += 1
             _log(f"Step {_step_count} (goal step {_goal_step_count})", blank=True)
 
-            prompt = load_prompt(consume_inbox=True, goal_step=_goal_step_count)
+            # Tell Claude what to do — map reasons to clear action directives
+            action = ""
+            if "snapshot" in reason_key:
+                action = "Run the 4-hour snapshot process: fetch account data, stake balances, subnet pools, and price history for BOTH wallets. Save snapshots using strategies.snapshots.save_snapshot(). This is your primary task for this step."
+            elif "report" in reason_key:
+                action = "Generate the daily report and write it to context/outbox/ so it gets sent to the operator via Telegram."
+            elif "review" in reason_key:
+                action = "Run the suggestion review process: check past suggestions against actual outcomes."
+
+            prompt = load_prompt(consume_inbox=True, goal_step=_goal_step_count, action_override=action)
             if not prompt:
                 _agent_wake.wait(timeout=5)
                 continue
