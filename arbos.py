@@ -1273,7 +1273,7 @@ def run_step(prompt: str, step_number: int, goal_step: int = 0, notify: bool = T
     with _log_lock:
         _log_fh = open(log_file, "a", encoding="utf-8")
 
-    target = _step_update_target() if notify else None
+    target = _step_update_target()
     step_label = f"Step {goal_step}" if goal_step else f"Step {step_number}"
     step_msg_id: int | None = None
     step_msg_text = ""
@@ -1372,12 +1372,19 @@ def run_step(prompt: str, step_number: int, goal_step: int = 0, notify: bool = T
             elapsed_s = time.monotonic() - t0
             inp, out = _get_tokens()
             tok = f" | {fmt_tokens(inp, out, elapsed_s)}" if (inp or out) else ""
-            parts = [f"{step_label} ({elapsed}, {status}{tok})"]
-            if agent_text:
-                parts.append(agent_text)
-            if rollout.strip():
-                parts.append(rollout.strip()[:3500])
-            final = "\n\n".join(parts)
+            header = f"{step_label} ({elapsed}, {status}{tok})"
+
+            if notify:
+                # Full output for interactive (inbox) steps
+                parts = [header]
+                if agent_text:
+                    parts.append(agent_text)
+                if rollout.strip():
+                    parts.append(rollout.strip()[:3500])
+                final = "\n\n".join(parts)
+            else:
+                # Brief summary for scheduled work — just the header line
+                final = header
 
             _edit_step_msg(final, force=True)
             log_chat("bot", final[:1000])
@@ -1463,6 +1470,7 @@ def agent_loop():
     _same_reason_count = 0  # how many times same reason fired in a row
 
     while True:
+        _agent_wake.clear()  # always clear before any wait path
         try:
             if not GOAL_FILE.exists() or not GOAL_FILE.read_text().strip():
                 if _goal_hash:
@@ -1533,8 +1541,6 @@ def agent_loop():
             _log(f"agent_loop CRASH (failure #{failures}): {exc}")
             _log(traceback.format_exc()[:500])
             _send_telegram_text(f"agent loop crashed on step {_step_count}: {str(exc)[:200]}")
-
-        _agent_wake.clear()
 
         if failures:
             step_delay = min(60 * (2 ** failures), 3600)
