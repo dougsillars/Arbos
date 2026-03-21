@@ -73,7 +73,7 @@ print(f"Saved: {path}")
 
 ### Daily Report (if >23 hours since last_report_time)
 
-Generate a combined report and send to operator via Telegram (write to `context/outbox/`):
+Generate a combined report and **ALWAYS send it to the operator via `context/outbox/`**. Every summary, analysis, or report you generate MUST be written to the outbox — never just print it or save it silently. The operator reads Telegram, not log files.
 
 ```python
 import sys; sys.path.insert(0, '.')
@@ -88,17 +88,20 @@ ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
 (outbox / f"daily_report_{ts}.md").write_text(report)
 ```
 
-Also run rotation candidate analysis:
+Also run rotation candidate analysis and **append results to the same outbox report**:
 ```python
 from strategies.bf_roi_pot import score_rotation_candidates
 candidates = score_rotation_candidates()
-for c in candidates[:5]:
-    print(f"SN{c['netuid']}: score={c['score']:.3f}, 24h={c['price_change_24h']:+.1f}%, liq={c['liquidity']:.0f}")
+rotation_text = "\n".join(f"SN{c['netuid']}: score={c['score']:.3f}, 24h={c['price_change_24h']:+.1f}%, liq={c['liquidity']:.0f}" for c in candidates[:5])
+# Append to the report file or write a second outbox file
+(outbox / f"rotation_{ts}.md").write_text(f"## Rotation Candidates\n\n{rotation_text}")
 ```
 
 Include suggestion accuracy stats in the report (see below).
 
 Update STATE.md `last_report_time`.
+
+**RULE: Any time you generate a summary, comparison, analysis, or report of any kind, you MUST write it to `context/outbox/`. If it's not in the outbox, the operator will never see it.**
 
 **This is the ONLY scheduled Telegram message. Do not message the operator at other times unless requested.**
 

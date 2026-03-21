@@ -1263,7 +1263,7 @@ def extract_text(result: subprocess.CompletedProcess) -> str:
     return output
 
 
-def run_step(prompt: str, step_number: int, goal_step: int = 0) -> bool:
+def run_step(prompt: str, step_number: int, goal_step: int = 0, notify: bool = True) -> bool:
     global _log_fh
 
     run_dir = make_run_dir()
@@ -1273,7 +1273,7 @@ def run_step(prompt: str, step_number: int, goal_step: int = 0) -> bool:
     with _log_lock:
         _log_fh = open(log_file, "a", encoding="utf-8")
 
-    target = _step_update_target()
+    target = _step_update_target() if notify else None
     step_label = f"Step {goal_step}" if goal_step else f"Step {step_number}"
     step_msg_id: int | None = None
     step_msg_text = ""
@@ -1459,6 +1459,8 @@ def agent_loop():
     failures = 0
     poll_interval = int(os.environ.get("AGENT_POLL", "60"))  # check state every 60s
     quick_delay = int(os.environ.get("AGENT_QUICK_DELAY", "30"))  # between active steps
+    _last_reason = None  # track what triggered the last step
+    _same_reason_count = 0  # how many times same reason fired in a row
 
     while True:
         try:
@@ -1473,8 +1475,23 @@ def agent_loop():
             # Check if any work is actually due — pure Python, no Claude call
             reason = _check_work_due()
             if reason is None:
+                _last_reason = None
+                _same_reason_count = 0
                 _agent_wake.wait(timeout=poll_interval)
                 continue
+
+            # Guard against stuck loops: if same reason keeps firing,
+            # the agent isn't resolving it — back off to poll interval
+            reason_key = reason.split("(")[0].strip()  # e.g. "snapshot due"
+            if reason_key == _last_reason:
+                _same_reason_count += 1
+                if _same_reason_count >= 3:
+                    _log(f"same reason '{reason_key}' fired {_same_reason_count}x — backing off to poll interval")
+                    _agent_wake.wait(timeout=poll_interval)
+                    continue
+            else:
+                _last_reason = reason_key
+                _same_reason_count = 1
 
             _log(f"work due: {reason}")
 
@@ -1499,7 +1516,10 @@ def agent_loop():
 
             _log(f"prompt={len(prompt)} chars")
 
-            success = run_step(prompt, _step_count, goal_step=_goal_step_count)
+            # Don't send step-by-step progress to Telegram — it floods the chat.
+            # Reports/summaries go via outbox. Only notify on inbox (conversational) replies.
+            notify = reason.startswith("inbox message")
+            success = run_step(prompt, _step_count, goal_step=_goal_step_count, notify=notify)
 
             if success:
                 failures = 0
@@ -1520,8 +1540,14 @@ def agent_loop():
             step_delay = min(60 * (2 ** failures), 3600)
             _log(f"failure backoff: {step_delay}s")
         else:
-            # After successful work, quick check in case multi-step task
-            step_delay = quick_delay
+            # Re-check: is there still work due? If not, go back to polling.
+            still_due = _check_work_due()
+            if still_due:
+                step_delay = quick_delay
+                _log(f"more work due ({still_due}) — next step in {step_delay}s")
+            else:
+                step_delay = poll_interval
+                _log(f"no more work due — polling in {step_delay}s")
 
         _log(f"waiting {step_delay}s before next step")
         _agent_wake.wait(timeout=step_delay)
