@@ -1443,9 +1443,16 @@ def _send_snapshot_summary():
                 f"  Top 3: {top_str}"
             )
         if lines:
-            ts = snaps[0].get("timestamp", "")[:16] if snaps else ""
-            msg = f"📊 Snapshot {ts} UTC\n\n" + "\n\n".join(lines)
+            # Get timestamp from whichever wallet had data
+            ts = ""
+            for wk in ("bf_roi_pot", "ai_managed"):
+                s = load_latest(wk, 1)
+                if s:
+                    ts = s[0].get("timestamp", "")[:16]
+                    break
+            msg = f"Snapshot {ts} UTC\n\n" + "\n\n".join(lines)
             _send_telegram_text(msg)
+            _log(f"snapshot summary sent ({len(msg)} chars)")
     except Exception as exc:
         _log(f"snapshot summary failed: {str(exc)[:120]}")
 
@@ -1483,6 +1490,13 @@ def _check_work_due() -> str | None:
     if INBOX_FILE.exists():
         inbox = INBOX_FILE.read_text().strip()
         if inbox:
+            # Handle simple commands in Python — no need to spawn Claude
+            inbox_lower = inbox.lower()
+            if any(w in inbox_lower for w in ["summary", "snapshot", "status", "report"]):
+                _send_snapshot_summary()
+                INBOX_FILE.write_text("")
+                _log(f"inbox handled in Python: sent snapshot summary for '{inbox[:50]}'")
+                return None  # handled, no Claude needed
             return f"inbox message: {inbox[:50]}"
 
     # Snapshot due if >3.5 hours since last
