@@ -1420,6 +1420,29 @@ def _parse_state_times() -> dict[str, datetime | None]:
     return result
 
 
+def _update_state_time(key: str):
+    """Update a timestamp field in STATE.md to current UTC time."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if not STATE_FILE.exists():
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        STATE_FILE.write_text(f"# Portfolio Tracker State\n\n{key}: {now}\n")
+        return
+
+    lines = STATE_FILE.read_text().splitlines()
+    found = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith(f"{key}:"):
+            lines[i] = f"{key}: {now}"
+            found = True
+            break
+    if not found:
+        lines.append(f"{key}: {now}")
+    STATE_FILE.write_text("\n".join(lines) + "\n")
+    _log(f"updated STATE.md: {key} = {now}")
+
+
 def _check_work_due() -> str | None:
     """Check STATE.md to see if any scheduled work is due. Returns reason or None."""
     from datetime import datetime, timezone, timedelta
@@ -1489,13 +1512,15 @@ def agent_loop():
                 continue
 
             # Guard against stuck loops: if same reason keeps firing,
-            # the agent isn't resolving it — back off to poll interval
+            # the agent isn't resolving it — back off with escalating wait
             reason_key = reason.split("(")[0].strip()  # e.g. "snapshot due"
             if reason_key == _last_reason:
                 _same_reason_count += 1
                 if _same_reason_count >= 3:
-                    _log(f"same reason '{reason_key}' fired {_same_reason_count}x — backing off to poll interval")
-                    _agent_wake.wait(timeout=poll_interval)
+                    # Escalate: 5min, 10min, 20min... up to 1hr
+                    backoff = min(300 * (2 ** (_same_reason_count - 3)), 3600)
+                    _log(f"stuck on '{reason_key}' ({_same_reason_count}x) — waiting {backoff}s")
+                    _agent_wake.wait(timeout=backoff)
                     continue
             else:
                 _last_reason = reason_key
@@ -1531,6 +1556,14 @@ def agent_loop():
 
             if success:
                 failures = 0
+                # Update STATE.md so Python knows this work is done —
+                # don't rely on Claude subprocess to do it
+                if reason_key == "snapshot due":
+                    _update_state_time("last_snapshot_time")
+                elif reason_key == "daily report due":
+                    _update_state_time("last_report_time")
+                elif reason_key == "suggestion review due":
+                    _update_state_time("last_suggestion_review_time")
             else:
                 failures += 1
                 _log(f"failure #{failures}")
